@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime
-from manager.mongo_model import ModelBase
+from mongo_model.mongo_model import ModelBase
 
 
 class TestModel(ModelBase):
