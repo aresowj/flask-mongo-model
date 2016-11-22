@@ -161,7 +161,8 @@ class ModelBase(object):
                              'before you can get the value of primary key.' % self.__class__.__name__)
         return self._get_field_value(self._pk_name)
 
-    def _add_field(self, name, value=None, nullable=True, default=None, mutable=True, primary_key=False):
+    def _add_field(self, name, value=None, nullable=True, default=None, mutable=True, primary_key=False,
+                   build_index=False, **kwargs):
         self._fields[name] = {
             'nullable': nullable,
             'default': default,
@@ -169,6 +170,7 @@ class ModelBase(object):
             'primary_key': primary_key,
             'value': value if value else default,
             'mutable': mutable,
+            'build_index': build_index
         }
 
     def _before_update(self):
