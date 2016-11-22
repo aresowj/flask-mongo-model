@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='flask-mongo-model',
-    version='0.0.1',
+    version='0.0.2',
     description='A module provides basic ORM feature for MongoDB to Flask applications.',
     author='Ares Ou',
     author_email='aresowj@gmail.com',
