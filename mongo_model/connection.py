@@ -8,7 +8,7 @@ from flask import current_app as app
 
 
 app_conn = {}   # Map apps to connections
-logger = None
+logger = logging.getLogger(__name__)
 
 
 class DBClient(object):
@@ -22,13 +22,11 @@ class DBClient(object):
 
     @classmethod
     def _get_connection(cls):
-        if app not in app_conn:
-            global logger
-            logger = logging.getLogger(app.logger_name)
-
+        try:
+            return app_conn[app]
+        except KeyError:
             DBClient.init_conn()
-
-        return app_conn[app]
+            return app_conn[app]
 
     def __getattr__(self, item):
         return self._get_connection().__getattr__(item)
