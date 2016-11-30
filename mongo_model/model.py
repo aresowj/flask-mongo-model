@@ -1,5 +1,8 @@
+# -*- coding: utf-8 -*-
+
+
 from datetime import datetime
-from flask import current_app as app
+from mongo_model.connection import conn
 
 
 class ModelBase(object):
@@ -17,6 +20,16 @@ class ModelBase(object):
         # initiate _fields in __init__. Note that mutable objects
         # as default value for a variable will sometimes bring up
         # tricky issues.
+        # Format of MONGODB_SETTINGS dictionary should be:
+        # {
+        #     'host': '127.0.0.1',
+        #     'port': 27017,
+        #     'document_class': dict,
+        #     'tz_aware': False,
+        #     'connect': True
+        # }
+        # For detailed explanation, refer to
+        # https://api.mongodb.com/python/current/api/pymongo/mongo_client.html
         self._fields = {}
 
     def to_dict(self, for_json=False):
@@ -61,7 +74,7 @@ class ModelBase(object):
             if self._fields[field]['updated'] and self._fields[field]['mutable']:
                 to_update[field] = self._get_field_value(field)
                 self._set_default_value(field)
-        result = (app.db[self._collection_name]
+        result = (conn[self._collection_name]
                   .find_one_and_update({self._pk_name: self.get_pk_value()},
                                        {'$set': to_update}))
         # if no document matched, result will be None.
@@ -69,7 +82,7 @@ class ModelBase(object):
         if result is not None:
             # update succeed
             succeed = True
-            # reset updated status
+            # reset updated flag
             for field in to_update:
                 self._set_field_updated(field, updated=False)
         else:
@@ -84,7 +97,7 @@ class ModelBase(object):
         self._before_create()
         for field in self._fields:
             self._set_default_value(field)
-        result = app.db[self._collection_name].insert_one(self.to_dict())
+        result = conn[self._collection_name].insert_one(self.to_dict())
         if result.acknowledged:
             self._id = result.inserted_id
             self._set_field_updated('_id', updated=False)
@@ -94,58 +107,23 @@ class ModelBase(object):
 
     @classmethod
     def all(cls):
-        """Return all the model objects. If global cache is expired,
-        fetch them from database again. When fetching from database,
-        this method will also rebuild the global cache.
+        """Return all the model objects.
         """
-        # reset the cache
-        # TODO: change to fetch only if dict expired.
-        # TODO: make cache a class instance
-        app.model_caches[cls._collection_name] = {}
-        for obj in app.db[cls._collection_name].find():
-            instance = cls(**obj)
-            app.model_caches[cls._collection_name][instance.get_pk_value()] = instance
-
-        return app.model_caches[cls._collection_name].values()
+        return list(conn[cls._collection_name].find())
 
     @classmethod
     def get(cls, *args, **kwargs):
         """Get one document from database with kwargs and return an
         model instance.
         """
-        try:
-            obj = app.model_caches[cls._collection_name][kwargs[cls._pk_name]]
-        except KeyError:
-            # machine not found in global dictionary, try to get it
-            # from database
-            document = app.db[cls._collection_name].find_one(kwargs)
-            # MongoDB will return a null result but not None object.
-            obj = cls(**document) if document else None
-            if obj:
-                app.model_caches[cls._collection_name][obj.get_pk_value()] = obj
-
-        return obj
+        document = conn[cls._collection_name].find_one(kwargs)
+        # MongoDB will return a null result but not None object.
+        return cls(**document) if document else None
 
     @classmethod
     def delete(cls, *args, **kwargs):
-        result = app.db[cls._collection_name].delete_one(kwargs)
-
-        if result.deleted_count > 0:
-            try:
-                cls.remove_from_cache(kwargs[cls._pk_name])
-            except KeyError:
-                cls.all()
-
-            return True
-        else:
-            return False
-
-    @classmethod
-    def remove_from_cache(cls, primary_key):
-        try:
-            del app.model_caches[cls._collection_name][primary_key]
-        except KeyError:
-            pass
+        result = conn[cls._collection_name].delete_one(kwargs)
+        return result.deleted_count > 0
 
     @classmethod
     def get_collection_name(cls):
