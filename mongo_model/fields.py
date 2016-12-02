@@ -2,6 +2,7 @@
 
 
 import logging
+import six
 from datetime import datetime
 
 
@@ -17,9 +18,10 @@ class MongoField(object):
     _build_index = False
     _max_length = None
     _updated = False
+    _required = False
 
     def __init__(self, *args, **kwargs):
-        for k, v in kwargs:
+        for k, v in six.iteritems(kwargs):
             name = '_' + k
 
             if hasattr(self, name):
@@ -53,6 +55,14 @@ class MongoField(object):
         if self._value != val:
             self._value = val
             self.updated = True
+
+    @property
+    def required(self):
+        return self._required
+
+    @required.setter
+    def required(self, val):
+        self._required = val
 
     def get_value(self):
         return self._value

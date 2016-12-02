@@ -35,13 +35,20 @@ class ModelBase(object):
         # For detailed explanation, refer to
         # https://api.mongodb.com/python/current/api/pymongo/mongo_client.html
         self._fields = {}
-        self._init_fields()
+        self._init_fields(kwargs)
 
-    def _init_fields(self):
+    def _init_fields(self, init_dict):
+        self._id = init_dict.pop('_id', None)
+
         for name in dir(self):
             field = super(ModelBase, self).__getattribute__(name)
             if isinstance(field, MongoField):
+                if field.required and name not in init_dict:
+                    raise ValueError('Required field %s is not provided.' % name)
                 self._fields[name] = field
+                # Set field values
+                if name in init_dict:
+                    setattr(self, name, init_dict[name])
 
     def to_dict(self, for_json=False):
         """generate a dictionary for JSON dump or MongoDB usage."""
@@ -70,7 +77,7 @@ class ModelBase(object):
         for name, field in six.iteritems(self._fields):
             if field.updated and field.mutable:
                 to_update[name] = field.value
-        result = (conn[self._collection_name]
+        result = (conn[self.get_collection_name()]
                   .find_one_and_update({self.get_pk_name(): self.get_pk_value()},
                                        {'$set': to_update}))
         # If no document matched, result will be None.
@@ -79,7 +86,7 @@ class ModelBase(object):
             succeed = True
             # reset updated flag
             for name in to_update:
-                getattr(self, name).updated = False
+                super(ModelBase, self).__getattribute__(name).updated = False
         else:
             # Update failed
             succeed = False
@@ -88,7 +95,7 @@ class ModelBase(object):
 
     def _create(self):
         """Create this object in database"""
-        result = conn[self._collection_name].insert_one(self.to_dict())
+        result = conn[self.get_collection_name()].insert_one(self.to_dict())
         if result.acknowledged:
             self._id = result.inserted_id
             return True
@@ -99,20 +106,20 @@ class ModelBase(object):
     def all(cls):
         """Return all the model objects.
         """
-        return list(conn[cls._collection_name].find())
+        return [cls(**document) for document in conn[cls.get_collection_name()].find()]
 
     @classmethod
     def get(cls, *args, **kwargs):
         """Get one document from database with kwargs and return an
         model instance.
         """
-        document = conn[cls._collection_name].find_one(kwargs)
+        document = conn[cls.get_collection_name()].find_one(kwargs)
         # MongoDB will return a null result but not None object.
         return cls(**document) if document else None
 
     @classmethod
     def delete(cls, *args, **kwargs):
-        result = conn[cls._collection_name].delete_one(kwargs)
+        result = conn[cls.get_collection_name()].delete_many(kwargs)
         return result.deleted_count > 0
 
     @classmethod
@@ -151,6 +158,11 @@ class ModelBase(object):
     def __getattribute__(self, item):
         field = super(ModelBase, self).__getattribute__(item)
         if isinstance(field, MongoField):
-            return field.get_value()
+            return field.value
 
         return field
+
+    def populate_fields(self, fields):
+        for name in fields:
+            if name in self._fields:
+                setattr(self, name, fields[name])
