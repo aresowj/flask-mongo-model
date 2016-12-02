@@ -2,9 +2,10 @@
 
 
 import logging
+from flask import current_app as app
 from pymongo import MongoClient
 from pymongo.database import Database
-from flask import current_app as app
+from mongomock import MongoClient as MockMongoClient, Database as MockDatabase
 
 
 app_conn = {}   # Map apps to connections
@@ -16,8 +17,14 @@ class DBClient(object):
     def init_conn(cls):
         try:
             db_name = app.config["MONGODB_SETTINGS"].pop('db_name')
-            app_conn[app] = Database(MongoClient(**app.config["MONGODB_SETTINGS"]), db_name)
-        except KeyError as e:
+            if app.testing:
+                mongo_client = MockMongoClient
+                db_class = MockDatabase
+            else:
+                mongo_client = MongoClient
+                db_class = Database
+            app_conn[app] = db_class(mongo_client(**app.config["MONGODB_SETTINGS"]), db_name)
+        except KeyError:
             logger.error('Current app has not set configurations for MongoDB!')
 
     @classmethod

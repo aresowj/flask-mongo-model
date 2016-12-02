@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 
 
+import six
 from datetime import datetime
 from mongo_model.connection import conn
+from mongo_model.fields import MongoField, ObjectIDField
 
 
 class ModelBase(object):
@@ -14,7 +16,9 @@ class ModelBase(object):
     _collection_name = None
     _fields = None
     _inserted = False
-    _pk_name = None
+    _pk_name = '_id'
+
+    _id = ObjectIDField()
 
     def __init__(self, *args, **kwargs):
         # initiate _fields in __init__. Note that mutable objects
@@ -31,17 +35,23 @@ class ModelBase(object):
         # For detailed explanation, refer to
         # https://api.mongodb.com/python/current/api/pymongo/mongo_client.html
         self._fields = {}
+        self._init_fields()
+
+    def _init_fields(self):
+        for name in dir(self):
+            field = super(ModelBase, self).__getattribute__(name)
+            if isinstance(field, MongoField):
+                self._fields[name] = field
 
     def to_dict(self, for_json=False):
         """generate a dictionary for JSON dump or MongoDB usage."""
         result = {}
 
-        for field in self._fields:
-            val = self._get_field_value(field)
-            if isinstance(val, datetime) and for_json:
-                result[field] = val.isoformat()
-            elif field != '_id':
-                result[field] = val
+        for name, field in six.iteritems(self._fields):
+            if isinstance(field.value, datetime) and for_json:
+                result[name] = field.value.isoformat()
+            elif name != '_id':
+                result[name] = field.value
 
         return result
 
@@ -54,53 +64,33 @@ class ModelBase(object):
         else:
             return self._create()
 
-    def _set_default_value(self, field_name):
-        # set the default value
-        if callable(self._fields[field_name]['value']):
-            # read value from callable for the field
-            self._set_field_value(field_name, self._fields[field_name]['value']())
-        elif self._fields[field_name]['value'] is None:
-            # field value not set, set the default value to field
-            if callable(self._fields[field_name]['default']):
-                self._set_field_value(field_name, self._fields[field_name]['default']())
-            else:
-                self._set_field_value(field_name, self._fields[field_name]['default'])
-
     def _update(self):
-        """Update this object to database"""
-        self._before_update()
+        """Update object to database"""
         to_update = {}
-        for field in self._fields:
-            if self._fields[field]['updated'] and self._fields[field]['mutable']:
-                to_update[field] = self._get_field_value(field)
-                self._set_default_value(field)
+        for name, field in six.iteritems(self._fields):
+            if field.updated and field.mutable:
+                to_update[name] = field.value
         result = (conn[self._collection_name]
-                  .find_one_and_update({self._pk_name: self.get_pk_value()},
+                  .find_one_and_update({self.get_pk_name(): self.get_pk_value()},
                                        {'$set': to_update}))
-        # if no document matched, result will be None.
-        # That means update failed.
+        # If no document matched, result will be None.
         if result is not None:
             # update succeed
             succeed = True
             # reset updated flag
-            for field in to_update:
-                self._set_field_updated(field, updated=False)
+            for name in to_update:
+                getattr(self, name).updated = False
         else:
-            # update failed
+            # Update failed
             succeed = False
-            # reset the fields to its original status
 
         return succeed
 
     def _create(self):
         """Create this object in database"""
-        self._before_create()
-        for field in self._fields:
-            self._set_default_value(field)
         result = conn[self._collection_name].insert_one(self.to_dict())
         if result.acknowledged:
             self._id = result.inserted_id
-            self._set_field_updated('_id', updated=False)
             return True
         else:
             return False
@@ -134,55 +124,33 @@ class ModelBase(object):
         return cls._pk_name
 
     def get_pk_value(self):
-        if self._pk_name is None:
+        if self.get_pk_name() is None:
             raise ValueError('_pk_name of model %s is not set, please indicate '
                              'before you can get the value of primary key.' % self.__class__.__name__)
-        return self._get_field_value(self._pk_name)
+        return getattr(self, self.get_pk_name())
 
-    def _add_field(self, name, value=None, nullable=True, default=None, mutable=True, primary_key=False,
-                   build_index=False, **kwargs):
-        self._fields[name] = {
-            'nullable': nullable,
-            'default': default,
-            'updated': False,
-            'primary_key': primary_key,
-            'value': value if value else default,
-            'mutable': mutable,
-            'build_index': build_index
-        }
-
-    def _before_update(self):
-        pass
-
-    def _before_create(self):
-        pass
-
-    def _set_field_updated(self, name, updated=True):
-        self._fields[name]['updated'] = updated
-
-    def _set_field_value(self, name, value):
-        if name in self._fields:
-            self._fields[name]['value'] = value
-            self._set_field_updated(name)
-
-    def _get_field_value(self, name):
-        return self._fields[name]['value']
-
-    def _get_field_default(self, name):
-        return self._fields[name]['default']
-
-    def __setattr__(self, key, value):
-        if key == '_fields' or key not in self._fields:
-            super(ModelBase, self).__setattr__(key, value)
+    def __setattr__(self, item, value):
+        try:
+            field = super(ModelBase, self).__getattribute__(item)
+        except AttributeError:
+            # The attribute is not set yet, skip the check and
+            # set it with __setattr__ in super class
+            pass
         else:
-            self._set_field_value(key, value)
+            if isinstance(field, MongoField):
+                field.value = value
+                # Field found, do not set it with value, otherwise
+                # the MongoField instance will be overwritten.
+                return
+
+            # If field is not an instance of MongoField, just
+            # set it like normal attributes.
+
+        super(ModelBase, self).__setattr__(item, value)
 
     def __getattribute__(self, item):
-        if item == '_fields' or item not in self._fields:
-            return super(ModelBase, self).__getattribute__(item)
-        else:
-            return self._get_field_value(item)
+        field = super(ModelBase, self).__getattribute__(item)
+        if isinstance(field, MongoField):
+            return field.get_value()
 
-    def populate_fields(self, update_dict):
-        for key, val in update_dict.iteritems():
-            self._set_field_value(key, val)
+        return field
