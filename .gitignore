@@ -1,5 +1,8 @@
 .DS_Store
 
+# PyCharm stuffs
+.idea/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -47,35 +50,8 @@ coverage.xml
 *,cover
 .hypothesis/
 
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-target/
-
-# IPython Notebook
-.ipynb_checkpoints
-
 # pyenv
 .python-version
-
-# celery beat schedule file
-celerybeat-schedule
 
 # dotenv
 .env
@@ -83,9 +59,3 @@ celerybeat-schedule
 # virtualenv
 venv/
 ENV/
-
-# Spyder project settings
-.spyderproject
-
-# Rope project settings
-.ropeproject
